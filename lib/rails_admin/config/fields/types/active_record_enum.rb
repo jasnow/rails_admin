@@ -27,12 +27,29 @@ module RailsAdmin
             false
           end
 
+          def parse_value(value)
+            return unless value.present?
+            abstract_model.model.attribute_types[name.to_s].serialize(value)
+          end
+
           def parse_input(params)
-            if params[name].present?
-              params[name] = enum.invert[params[name].to_i]
-            elsif params[name]
-              params[name] = nil
-            end
+            value = params[name]
+            return unless value
+            params[name] = parse_input_value(value)
+          end
+
+          def form_value
+            enum[super] || super
+          end
+
+        private
+
+          def parse_input_value(value)
+            abstract_model.model.attribute_types[name.to_s].deserialize(value)
+          end
+
+          def type_cast_value(value)
+            abstract_model.model.column_types[name.to_s].type_cast_from_user(value)
           end
         end
       end

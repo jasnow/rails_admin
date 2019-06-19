@@ -36,13 +36,13 @@ module RailsAdmin
                 image_html = v.image_tag(thumb_url, class: 'img-thumbnail')
                 url != thumb_url ? v.link_to(image_html, url, target: '_blank') : image_html
               else
-                v.link_to(nil, url, target: '_blank')
+                v.link_to(value, url, target: '_blank')
               end
             end
           end
 
           register_instance_option :image? do
-            (url = resource_url.to_s) && url.split('.').last =~ /jpg|jpeg|png|gif/i
+            (url = resource_url.to_s) && url.split('.').last =~ /jpg|jpeg|png|gif|svg/i
           end
 
           register_instance_option :allowed_methods do
@@ -57,7 +57,7 @@ module RailsAdmin
 
           # virtual class
           def resource_url
-            fail('not implemented')
+            raise('not implemented')
           end
 
           def virtual?

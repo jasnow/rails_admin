@@ -63,6 +63,20 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
       visit new_path(model_name: 'team')
       expect(find_field('team[color]').value).to eq('black')
     end
+
+    it 'renders custom value next time if error happend' do
+      RailsAdmin.config(Team) do
+        field :name do
+          render do
+            bindings[:object].persisted? ? 'Custom Name' : raise(ZeroDivisionError)
+          end
+        end
+      end
+      expect { visit new_path(model_name: 'team') }.to raise_error(/ZeroDivisionError/)
+      record = FactoryBot.create(:team)
+      visit edit_path(model_name: 'team', id: record.id)
+      expect(page).to have_content('Custom Name')
+    end
   end
 
   describe 'css hooks' do
@@ -705,8 +719,9 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
 
   describe 'nested form' do
     it 'works', js: true do
-      @record = FactoryGirl.create :field_test
-      @record.nested_field_tests = [NestedFieldTest.create!(title: 'title 1'), NestedFieldTest.create!(title: 'title 2')]
+      @record = FactoryBot.create :field_test
+      NestedFieldTest.create! title: 'title 1', field_test: @record
+      NestedFieldTest.create! title: 'title 2', field_test: @record
       visit edit_path(model_name: 'field_test', id: @record.id)
 
       find('#field_test_comment_attributes_field .add_nested_fields').click
@@ -715,7 +730,8 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
       fill_in 'field_test_nested_field_tests_attributes_0_title', with: 'nested field test title 1 edited', visible: false
       find('#field_test_nested_field_tests_attributes_1__destroy', visible: false).set('true')
 
-      click_button 'Save'
+      # trigger click via JS, workaround for instability in CI
+      execute_script %($('button[name="_save"]').trigger('click');)
       is_expected.to have_content('Field test successfully updated')
 
       @record.reload
@@ -724,8 +740,17 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
       expect(@record.nested_field_tests[0].title).to eq('nested field test title 1 edited')
     end
 
+    it 'works with nested has_many', js: true do
+      @record = FactoryBot.create :field_test
+      visit edit_path(model_name: 'field_test', id: @record.id)
+
+      find('#field_test_nested_field_tests_attributes_field .add_nested_fields').click
+
+      expect(page).to have_selector('.fields.tab-pane.active', visible: true)
+    end
+
     it 'is optional for has_one' do
-      @record = FactoryGirl.create :field_test
+      @record = FactoryBot.create :field_test
       visit edit_path(model_name: 'field_test', id: @record.id)
       click_button 'Save'
       @record.reload
@@ -743,7 +768,7 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
         end
       end
       @record = FieldTest.create
-      @record.nested_field_tests << NestedFieldTest.create!(title: 'title 1')
+      NestedFieldTest.create! title: 'title 1', field_test: @record
       visit edit_path(model_name: 'field_test', id: @record.id)
       expect(find('#field_test_nested_field_tests_attributes_0_title_field')).to have_content('NestedFieldTest')
     end
@@ -776,14 +801,15 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
 
       it 'does not show destroy button except for newly created when :allow_destroy is false' do
         @record = FieldTest.create
-        @record.nested_field_tests << NestedFieldTest.create!(title: 'nested title 1')
+        NestedFieldTest.create! title: 'nested title 1', field_test: @record
         allow(FieldTest.nested_attributes_options).to receive(:[]).with(:nested_field_tests).
           and_return(allow_destroy: false, update_only: false)
         visit edit_path(model_name: 'field_test', id: @record.id)
         expect(find('#field_test_nested_field_tests_attributes_0_title').value).to eq('nested title 1')
         is_expected.not_to have_selector('form .remove_nested_fields')
         expect(find('div#nested_field_tests_fields_blueprint', visible: false)[:'data-blueprint']).to match(
-          /<a[^>]* class="remove_nested_fields"[^>]*>/)
+          /<a[^>]* class="remove_nested_fields"[^>]*>/,
+        )
       end
     end
 
@@ -792,7 +818,8 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
         visit new_path(model_name: 'field_test')
         is_expected.not_to have_selector('select#field_test_nested_field_tests_attributes_new_nested_field_tests_field_test_id')
         expect(find('div#nested_field_tests_fields_blueprint', visible: false)[:'data-blueprint']).to match(
-          /<select[^>]* id="field_test_nested_field_tests_attributes_new_nested_field_tests_another_field_test_id"[^>]*>/)
+          /<select[^>]* id="field_test_nested_field_tests_attributes_new_nested_field_tests_another_field_test_id"[^>]*>/,
+        )
       end
 
       it 'hides fields that are deeply nested with inverse_of' do
@@ -805,15 +832,53 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
 
   describe 'embedded model', mongoid: true do
     it 'works' do
-      @record = FactoryGirl.create :field_test
+      @record = FactoryBot.create :field_test
       2.times.each { |i| @record.embeds.create name: "embed #{i}" }
       visit edit_path(model_name: 'field_test', id: @record.id)
       fill_in 'field_test_embeds_attributes_0_name', with: 'embed 1 edited'
-      page.find('#field_test_embeds_attributes_1__destroy').set('true')
+      page.find('#field_test_embeds_attributes_1__destroy', visible: false).set('true')
       click_button 'Save' # first(:button, "Save").click
       @record.reload
       expect(@record.embeds.length).to eq(1)
       expect(@record.embeds[0].name).to eq('embed 1 edited')
+    end
+  end
+
+  describe 'has_many', active_record: true do
+    context 'with not nullable foreign key' do
+      before do
+        RailsAdmin.config FieldTest do
+          edit do
+            field :nested_field_tests do
+              nested_form false
+            end
+          end
+        end
+        @field_test = FactoryBot.create :field_test
+      end
+
+      it 'don\'t allow to remove element', js: true do
+        visit edit_path(model_name: 'FieldTest', id: @field_test.id)
+        is_expected.not_to have_selector('a.ra-multiselect-item-remove')
+        is_expected.not_to have_selector('a.ra-multiselect-item-remove-all')
+      end
+    end
+
+    context 'with nullable foreign key' do
+      before do
+        RailsAdmin.config Team do
+          edit do
+            field :players
+          end
+        end
+        @team = FactoryBot.create :team
+      end
+
+      it 'allow to remove element', js: true do
+        visit edit_path(model_name: 'Team', id: @team.id)
+        is_expected.to have_selector('a.ra-multiselect-item-remove')
+        is_expected.to have_selector('a.ra-multiselect-item-remove-all')
+      end
     end
   end
 
@@ -850,39 +915,51 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
     end
   end
 
+  describe 'SimpleMDE Support' do
+    it 'works without error', js: true do
+      RailsAdmin.config Draft do
+        edit do
+          field :notes, :simple_mde
+        end
+      end
+      expect { visit new_path(model_name: 'draft') }.not_to raise_error
+      is_expected.to have_selector('a[title="Markdown Guide"]')
+    end
+  end
+
   describe 'CKEditor Support' do
-    it 'adds Javascript to enable CKEditor' do
+    it 'works without error', js: true do
       RailsAdmin.config Draft do
         edit do
           field :notes, :ck_editor
         end
       end
-      visit new_path(model_name: 'draft')
-      is_expected.to have_selector('textarea#draft_notes[data-richtext="ckeditor"]')
+      expect { visit new_path(model_name: 'draft') }.not_to raise_error
+      is_expected.to have_selector('#cke_draft_notes')
     end
   end
 
   describe 'CodeMirror Support' do
-    it 'adds Javascript to enable CodeMirror' do
+    it 'works without error', js: true do
       RailsAdmin.config Draft do
         edit do
           field :notes, :code_mirror
         end
       end
-      visit new_path(model_name: 'draft')
-      is_expected.to have_selector('textarea#draft_notes[data-richtext="codemirror"]')
+      expect { visit new_path(model_name: 'draft') }.not_to raise_error
+      is_expected.to have_selector('.CodeMirror')
     end
   end
 
   describe 'bootstrap_wysihtml5 Support' do
-    it 'adds Javascript to enable bootstrap_wysihtml5' do
+    it 'works without error', js: true do
       RailsAdmin.config Draft do
         edit do
           field :notes, :wysihtml5
         end
       end
-      visit new_path(model_name: 'draft')
-      is_expected.to have_selector('textarea#draft_notes[data-richtext="bootstrap-wysihtml5"]')
+      expect { visit new_path(model_name: 'draft') }.not_to raise_error
+      is_expected.to have_selector('.wysihtml5-toolbar')
     end
 
     it 'should include custom wysihtml5 configuration' do
@@ -902,14 +979,14 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
   end
 
   describe 'Froala Support' do
-    it 'adds Javascript to enable Froala' do
+    it 'works without error', js: true do
       RailsAdmin.config Draft do
         edit do
           field :notes, :froala
         end
       end
-      visit new_path(model_name: 'draft')
-      is_expected.to have_selector('textarea#draft_notes[data-richtext="froala-wysiwyg"]')
+      expect { visit new_path(model_name: 'draft') }.not_to raise_error
+      is_expected.to have_selector('.fr-box')
     end
 
     it 'should include custom froala configuration' do
@@ -927,6 +1004,18 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
       is_expected.to have_selector("textarea#draft_notes[data-richtext=\"froala-wysiwyg\"][data-options]")
     end
   end
+
+  describe 'ActionText Support' do
+    it 'works without error', js: true do
+      RailsAdmin.config FieldTest do
+        edit do
+          field :action_text_field
+        end
+      end
+      expect { visit new_path(model_name: 'field_test') }.not_to raise_error
+      is_expected.to have_selector('trix-toolbar')
+    end
+  end if defined?(ActionText)
 
   describe 'Paperclip Support' do
     it 'shows a file upload field' do
@@ -1091,12 +1180,8 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
       end
 
       after do
-        if Rails.version >= '4.2'
-          Team.reset_column_information
-          Team.attribute_type_decorations.clear
-        else
-          Team.serialized_attributes.clear
-        end
+        Team.reset_column_information
+        Team.attribute_type_decorations.clear
         Team.instance_eval { undef :color_enum }
       end
 
@@ -1129,35 +1214,76 @@ describe 'RailsAdmin Config DSL Edit Section', type: :request do
     end
   end
 
-  if defined?(ActiveRecord) && ActiveRecord::VERSION::STRING >= '4.1'
-    describe 'ActiveRecord::Enum support', active_record: true do
+  describe 'ActiveRecord::Enum support', active_record: true do
+    describe 'for string-keyed enum' do
       before do
-        class FieldTestWithEnum < FieldTest
-          self.table_name = 'field_tests'
-          enum integer_field: %w(foo bar)
-        end
-        RailsAdmin.config.included_models = [FieldTestWithEnum]
-        RailsAdmin.config FieldTestWithEnum do
+        RailsAdmin.config FieldTest do
           edit do
-            field :integer_field
+            field :string_enum_field do
+              default_value 'M'
+            end
           end
         end
       end
 
-      after do
-        Object.send :remove_const, :FieldTestWithEnum
-      end
-
       it 'auto-detects enumeration' do
-        visit new_path(model_name: 'field_test_with_enum')
+        visit new_path(model_name: 'field_test')
         is_expected.to have_selector('.enum_type select')
         is_expected.not_to have_selector('.enum_type select[multiple]')
-        expect(all('.enum_type option').map(&:text).select(&:present?)).to eq %w(foo bar)
+        expect(all('.enum_type option').map(&:text).select(&:present?)).to eq %w(S M L)
       end
 
       it 'shows current value as selected' do
-        visit edit_path(model_name: 'field_test_with_enum', id: FieldTestWithEnum.create(integer_field: 'bar'))
-        expect(find('.enum_type select').value).to eq '1'
+        visit edit_path(model_name: 'field_test', id: FieldTest.create(string_enum_field: 'L'))
+        expect(find('.enum_type select').value).to eq 'l'
+      end
+
+      it 'can be updated' do
+        visit edit_path(model_name: 'field_test', id: FieldTest.create(string_enum_field: 'S'))
+        select 'L'
+        click_button 'Save'
+        expect(FieldTest.first.string_enum_field).to eq 'L'
+      end
+
+      it 'pre-populates default value' do
+        visit new_path(model_name: 'field_test')
+        expect(find('.enum_type select').value).to eq 'm'
+      end
+    end
+
+    describe 'for integer-keyed enum' do
+      before do
+        RailsAdmin.config FieldTest do
+          edit do
+            field :integer_enum_field do
+              default_value :medium
+            end
+          end
+        end
+      end
+
+      it 'auto-detects enumeration' do
+        visit new_path(model_name: 'field_test')
+        is_expected.to have_selector('.enum_type select')
+        is_expected.not_to have_selector('.enum_type select[multiple]')
+        expect(all('.enum_type option').map(&:text).select(&:present?)).to eq %w(small medium large)
+      end
+
+      it 'shows current value as selected' do
+        visit edit_path(model_name: 'field_test', id: FieldTest.create(integer_enum_field: :large))
+        expect(find('.enum_type select').value).to eq "2"
+      end
+
+      it 'can be updated' do
+        visit edit_path(model_name: 'field_test', id: FieldTest.create(integer_enum_field: :small))
+        select 'large'
+        click_button 'Save'
+        expect(FieldTest.first.integer_enum_field).to eq "large"
+      end
+
+      it 'pre-populates default value' do
+        visit new_path(model_name: 'field_test')
+        expect(find('.enum_type select').value).to eq "1"
       end
     end
   end

@@ -2,7 +2,7 @@ require 'spec_helper'
 
 describe 'RailsAdmin Config DSL Show Section', type: :request do
   subject { page }
-  let(:team) { FactoryGirl.create :team }
+  let(:team) { FactoryBot.create :team }
 
   def do_request
     visit show_path(model_name: 'team', id: team.id)
@@ -10,7 +10,7 @@ describe 'RailsAdmin Config DSL Show Section', type: :request do
 
   describe 'JSON show view' do
     before do
-      @player = FactoryGirl.create :player
+      @player = FactoryBot.create :player
       visit uri
     end
 
@@ -27,7 +27,13 @@ describe 'RailsAdmin Config DSL Show Section', type: :request do
   end
 
   describe 'compact_show_view' do
-    it 'hides empty fields in show view by default' do
+    it 'hides nil fields in show view by default' do
+      do_request
+      is_expected.not_to have_css('.logo_url_field')
+    end
+
+    it 'hides blank fields in show view by default' do
+      team.update logo_url: ''
       do_request
       is_expected.not_to have_css('.logo_url_field')
     end
@@ -39,6 +45,15 @@ describe 'RailsAdmin Config DSL Show Section', type: :request do
 
       do_request
       is_expected.to have_css('.logo_url_field')
+    end
+
+    describe 'with boolean field' do
+      let(:player) { FactoryBot.create :player, retired: false }
+
+      it 'does not hide false value' do
+        visit show_path(model_name: 'player', id: player.id)
+        is_expected.to have_css('.retired_field')
+      end
     end
   end
 
@@ -88,9 +103,10 @@ describe 'RailsAdmin Config DSL Show Section', type: :request do
 
       is_expected.not_to have_selector('h4', text: 'Basic info')
 
-      %w(division name logo_url manager
-         ballpark mascot founded wins
-         losses win_percentage revenue
+      %w(
+        division name logo_url manager
+        ballpark mascot founded wins
+        losses win_percentage revenue
       ).each do |field|
         is_expected.not_to have_selector(".#{field}_field")
       end
@@ -186,9 +202,10 @@ describe 'RailsAdmin Config DSL Show Section', type: :request do
     it 'shows all by default' do
       do_request
 
-      %w(division name logo_url manager
-         ballpark mascot founded wins
-         losses win_percentage revenue players fans
+      %w(
+        division name logo_url manager
+        ballpark mascot founded wins
+        losses win_percentage revenue players fans
       ).each do |field|
         is_expected.to have_selector(".#{field}_field")
       end
@@ -253,9 +270,10 @@ describe 'RailsAdmin Config DSL Show Section', type: :request do
 
       do_request
 
-      ['Division', 'Name (STRING)', 'Logo url (STRING)', 'Manager (STRING)',
-       'Ballpark (STRING)', 'Mascot (STRING)', 'Founded', 'Wins', 'Losses',
-       'Win percentage', 'Revenue', 'Players', 'Fans'
+      [
+        'Division', 'Name (STRING)', 'Logo url (STRING)', 'Manager (STRING)',
+        'Ballpark (STRING)', 'Mascot (STRING)', 'Founded', 'Wins', 'Losses',
+        'Win percentage', 'Revenue', 'Players', 'Fans'
       ].each do |text|
         is_expected.to have_selector('.label', text: text)
       end
@@ -272,9 +290,10 @@ describe 'RailsAdmin Config DSL Show Section', type: :request do
 
       do_request
 
-      ['Division', 'Name (STRING)', 'Logo url (STRING)', 'Manager (STRING)',
-       'Ballpark (STRING)', 'Mascot (STRING)', 'Founded', 'Wins', 'Losses',
-       'Win percentage', 'Revenue', 'Players', 'Fans'
+      [
+        'Division', 'Name (STRING)', 'Logo url (STRING)', 'Manager (STRING)',
+        'Ballpark (STRING)', 'Mascot (STRING)', 'Founded', 'Wins', 'Losses',
+        'Win percentage', 'Revenue', 'Players', 'Fans'
       ].each do |text|
         is_expected.to have_selector('.label', text: text)
       end
@@ -340,7 +359,7 @@ describe 'RailsAdmin Config DSL Show Section', type: :request do
 
   describe 'embedded model', mongoid: true do
     it "does not show link to individual object's page" do
-      @record = FactoryGirl.create :field_test
+      @record = FactoryBot.create :field_test
       2.times.each { |i| @record.embeds.create name: "embed #{i}" }
       visit show_path(model_name: 'field_test', id: @record.id)
       is_expected.not_to have_link('embed 0')
@@ -349,7 +368,7 @@ describe 'RailsAdmin Config DSL Show Section', type: :request do
   end
 
   describe 'virtual field' do
-    let(:team) { FactoryGirl.create :team, name: 'foobar' }
+    let(:team) { FactoryBot.create :team, name: 'foobar' }
     context 'with formatted_value defined' do
       before do
         RailsAdmin.config Team do

@@ -41,6 +41,9 @@ module RailsAdmin
       # been configured
       attr_accessor :default_items_per_page
 
+      # Default association limit
+      attr_accessor :default_associated_collection_limit
+
       attr_reader :default_search_operator
 
       # Configuration option to specify which method names will be searched for
@@ -56,14 +59,24 @@ module RailsAdmin
       # Set the max width of columns in list view before a new set is created
       attr_accessor :total_columns_width
 
+      # Enable horizontal-scrolling table in list view, ignore total_columns_width
+      attr_accessor :sidescroll
+
       # set parent controller
       attr_accessor :parent_controller
+
+      # set settings for `protect_from_forgery` method
+      # By default, it raises exception upon invalid CSRF tokens
+      attr_accessor :forgery_protection_settings
 
       # Stores model configuration objects in a hash identified by model's class
       # name.
       #
       # @see RailsAdmin.config
       attr_reader :registry
+
+      # show Gravatar in Navigation bar
+      attr_accessor :show_gravatar
 
       # accepts a hash of static links to be shown below the main navigation
       attr_accessor :navigation_static_links
@@ -104,11 +117,13 @@ module RailsAdmin
       def audit_with(*args, &block)
         extension = args.shift
         if extension
+          klass = RailsAdmin::AUDITING_ADAPTERS[extension]
+          klass.setup if klass.respond_to? :setup
           @audit = proc do
-            @auditing_adapter = RailsAdmin::AUDITING_ADAPTERS[extension].new(*([self] + args).compact)
+            @auditing_adapter = klass.new(*([self] + args).compact)
           end
-        else
-          @audit = block if block
+        elsif block
+          @audit = block
         end
         @audit || DEFAULT_AUDIT
       end
@@ -139,11 +154,13 @@ module RailsAdmin
       def authorize_with(*args, &block)
         extension = args.shift
         if extension
+          klass = RailsAdmin::AUTHORIZATION_ADAPTERS[extension]
+          klass.setup if klass.respond_to? :setup
           @authorize = proc do
-            @authorization_adapter = RailsAdmin::AUTHORIZATION_ADAPTERS[extension].new(*([self] + args).compact)
+            @authorization_adapter = klass.new(*([self] + args).compact)
           end
-        else
-          @authorize = block if block
+        elsif block
+          @authorize = block
         end
         @authorize || DEFAULT_AUTHORIZE
       end
@@ -187,13 +204,13 @@ module RailsAdmin
         if %w(default like starts_with ends_with is =).include? operator
           @default_search_operator = operator
         else
-          fail(ArgumentError.new("Search operator '#{operator}' not supported"))
+          raise(ArgumentError.new("Search operator '#{operator}' not supported"))
         end
       end
 
       # pool of all found model names from the whole application
       def models_pool
-        excluded = (excluded_models.collect(&:to_s) + ['RailsAdmin::History'])
+        excluded = (excluded_models.collect(&:to_s) + %w(RailsAdmin::History PaperTrail::Version PaperTrail::VersionAssociation ActiveStorage::Attachment ActiveStorage::Blob))
 
         (viable_models - excluded).uniq.sort
       end
@@ -223,11 +240,9 @@ module RailsAdmin
           end
         end
 
-        if block
-          @registry[key] = RailsAdmin::Config::LazyModel.new(entity, &block)
-        else
-          @registry[key] ||= RailsAdmin::Config::LazyModel.new(entity)
-        end
+        @registry[key] ||= RailsAdmin::Config::LazyModel.new(entity)
+        @registry[key].add_deferred_block(&block) if block
+        @registry[key]
       end
 
       def default_hidden_fields=(fields)
@@ -268,16 +283,20 @@ module RailsAdmin
         @default_hidden_fields[:edit] = [:id, :_id, :created_at, :created_on, :deleted_at, :updated_at, :updated_on, :deleted_on]
         @default_hidden_fields[:show] = [:id, :_id, :created_at, :created_on, :deleted_at, :updated_at, :updated_on, :deleted_on]
         @default_items_per_page = 20
+        @default_associated_collection_limit = 100
         @default_search_operator = 'default'
         @excluded_models = []
         @included_models = []
         @total_columns_width = 697
+        @sidescroll = nil
         @label_methods = [:name, :title]
         @main_app_name = proc { [Rails.application.engine_name.titleize.chomp(' Application'), 'Admin'] }
         @registry = {}
+        @show_gravatar = true
         @navigation_static_links = {}
         @navigation_static_label = nil
-        @parent_controller = '::ApplicationController'
+        @parent_controller = '::ActionController::Base'
+        @forgery_protection_settings = {with: :exception}
         RailsAdmin::Config::Actions.reset
       end
 
@@ -287,6 +306,14 @@ module RailsAdmin
       def reset_model(model)
         key = model.is_a?(Class) ? model.name.to_sym : model.to_sym
         @registry.delete(key)
+      end
+
+      # Reset all models configuration
+      # Used to clear all configurations when reloading code in development.
+      # @see RailsAdmin::Engine
+      # @see RailsAdmin::Config.registry
+      def reset_all_models
+        @registry = {}
       end
 
       # Get all models that are configured as visible sorted by their weight and label.
@@ -313,7 +340,7 @@ module RailsAdmin
         included_models.collect(&:to_s).presence || begin
           @@system_models ||= # memoization for tests
             ([Rails.application] + Rails::Engine.subclasses.collect(&:instance)).flat_map do |app|
-              (app.paths['app/models'].to_a + app.config.autoload_paths).collect do |load_path|
+              (app.paths['app/models'].to_a + app.paths.eager_load).collect do |load_path|
                 Dir.glob(app.root.join(load_path)).collect do |load_dir|
                   Dir.glob(load_dir + '/**/*.rb').collect do |filename|
                     # app/models/module/class.rb => module/class.rb => module/class => Module::Class

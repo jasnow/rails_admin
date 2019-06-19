@@ -10,7 +10,7 @@ describe 'RailsAdmin Config DSL List Section', type: :request do
           field :name
         end
       end
-      FactoryGirl.create :team
+      FactoryBot.create :team
       visit index_path(model_name: 'team')
       is_expected.to have_selector('th.header.string_type.name_field')
       is_expected.to have_selector('td.string_type.name_field')
@@ -20,8 +20,8 @@ describe 'RailsAdmin Config DSL List Section', type: :request do
   describe 'number of items per page' do
     before do
       2.times.each do
-        FactoryGirl.create :league
-        FactoryGirl.create :player
+        FactoryBot.create :league
+        FactoryBot.create :player
       end
     end
 
@@ -284,7 +284,7 @@ describe 'RailsAdmin Config DSL List Section', type: :request do
           field :updated_at
         end
       end
-      @fans = FactoryGirl.create_list(:fan, 2)
+      @fans = FactoryBot.create_list(:fan, 2)
       visit index_path(model_name: 'fan')
       # NOTE: Capybara really doesn't want us to look at invisible text. This test
       # could break at any moment.
@@ -305,7 +305,7 @@ describe 'RailsAdmin Config DSL List Section', type: :request do
           field :updated_at
         end
       end
-      @fans = FactoryGirl.create_list(:fan, 2).sort_by(&:id)
+      @fans = FactoryBot.create_list(:fan, 2).sort_by(&:id)
       visit index_path(model_name: 'fan')
       expect(find('tbody tr:nth-child(1) td:nth-child(3)')).to have_content(@fans[1].name.upcase)
       expect(find('tbody tr:nth-child(2) td:nth-child(3)')).to have_content(@fans[0].name.upcase)
@@ -322,7 +322,7 @@ describe 'RailsAdmin Config DSL List Section', type: :request do
           field :updated_at
         end
       end
-      @fans = FactoryGirl.create_list(:fan, 2)
+      @fans = FactoryBot.create_list(:fan, 2)
       visit index_path(model_name: 'fan')
       is_expected.to have_selector('tbody tr:nth-child(1) td:nth-child(4)', text: /\d{2} \w{3} \d{1,2}:\d{1,2}/)
     end
@@ -338,7 +338,7 @@ describe 'RailsAdmin Config DSL List Section', type: :request do
           field :updated_at
         end
       end
-      @fans = FactoryGirl.create_list(:fan, 2)
+      @fans = FactoryBot.create_list(:fan, 2)
       visit index_path(model_name: 'fan')
       is_expected.to have_selector('tbody tr:nth-child(1) td:nth-child(4)', text: /\d{4}-\d{2}-\d{2}/)
     end
@@ -351,8 +351,8 @@ describe 'RailsAdmin Config DSL List Section', type: :request do
           field :player_names_truncated
         end
       end
-      @team = FactoryGirl.create :team
-      @players = FactoryGirl.create_list :player, 2, team: @team
+      @team = FactoryBot.create :team
+      @players = FactoryBot.create_list :player, 2, team: @team
       visit index_path(model_name: 'team')
       expect(find('tbody tr:nth-child(1) td:nth-child(4)')).to have_content(@players.sort_by(&:id).collect(&:name).join(', '))
     end
@@ -427,11 +427,180 @@ describe 'RailsAdmin Config DSL List Section', type: :request do
           field :embeds
         end
       end
-      @record = FactoryGirl.create :field_test
+      @record = FactoryBot.create :field_test
       2.times.each { |i| @record.embeds.create name: "embed #{i}" }
       visit index_path(model_name: 'field_test')
       is_expected.not_to have_link('embed 0')
       is_expected.not_to have_link('embed 1')
+    end
+  end
+
+  describe 'checkboxes?' do
+    describe 'default is enabled' do
+      before do
+        RailsAdmin.config FieldTest do
+          list
+        end
+      end
+
+      it 'displays checkboxes on index' do
+        @records = FactoryBot.create_list :field_test, 3
+
+        visit index_path(model_name: 'field_test')
+        checkboxes = all(:xpath, './/form[@id="bulk_form"]//input[@type="checkbox"]')
+        expect(checkboxes.length).to be > 0
+
+        expect(page).to have_content('Selected items')
+      end
+    end
+
+    describe 'false' do
+      before do
+        RailsAdmin.config FieldTest do
+          list do
+            checkboxes false
+          end
+        end
+      end
+
+      it 'does not display any checkboxes on index' do
+        @records = FactoryBot.create_list :field_test, 3
+
+        visit index_path(model_name: 'field_test')
+        checkboxes = all(:xpath, './/form[@id="bulk_form"]//input[@type="checkbox"]')
+        expect(checkboxes.length).to eq 0
+
+        expect(page).not_to have_content('Selected items')
+      end
+    end
+  end
+
+  describe 'sidescroll' do
+    all_team_columns = ['', '', 'Id', 'Created at', 'Updated at', 'Division', 'Name', 'Logo url', 'Team Manager', 'Ballpark', 'Mascot', 'Founded', 'Wins', 'Losses', 'Win percentage', 'Revenue', 'Color', 'Custom field', 'Main Sponsor', 'Players', 'Some Fans', 'Comments']
+
+    it "displays all fields on one page when true" do
+      RailsAdmin.config do |config|
+        config.sidescroll = true
+      end
+      FactoryBot.create_list :team, 3
+      visit index_path(model_name: 'team')
+      cols = all('th').collect(&:text)
+      expect(cols[0..4]).to eq(all_team_columns[0..4])
+      expect(cols).to contain_exactly(*all_team_columns)
+      expect(page).to have_selector('.ra-sidescroll[data-ra-sidescroll=3]')
+    end
+
+    it "displays all fields with custom frozen columns" do
+      RailsAdmin.config do |config|
+        config.sidescroll = {num_frozen_columns: 2}
+      end
+      FactoryBot.create_list :team, 3
+      visit index_path(model_name: 'team')
+      cols = all('th').collect(&:text)
+      expect(cols[0..4]).to eq(all_team_columns[0..4])
+      expect(cols).to contain_exactly(*all_team_columns)
+      expect(page).to have_selector('.ra-sidescroll[data-ra-sidescroll=2]')
+    end
+
+    it "displays all fields with no checkboxes" do
+      RailsAdmin.config do |config|
+        config.sidescroll = true
+      end
+      RailsAdmin.config Team do
+        list do
+          checkboxes false
+        end
+      end
+      FactoryBot.create_list :team, 3
+      visit index_path(model_name: 'team')
+      cols = all('th').collect(&:text)
+      expect(cols[0..3]).to eq(all_team_columns[1..4])
+      expect(cols).to contain_exactly(*all_team_columns[1..-1])
+      expect(page).to have_selector('.ra-sidescroll[data-ra-sidescroll=2]')
+    end
+
+    it "displays all fields with no frozen columns" do
+      RailsAdmin.config do |config|
+        config.sidescroll = {num_frozen_columns: 0}
+      end
+      FactoryBot.create_list :team, 3
+      visit index_path(model_name: 'team')
+      cols = all('th').collect(&:text)
+      expect(cols[0..4]).to eq(all_team_columns[0..4])
+      expect(cols).to contain_exactly(*all_team_columns)
+      expect(page).to have_selector('.ra-sidescroll[data-ra-sidescroll=0]')
+    end
+
+    it "displays sets when not set" do
+      visit index_path(model_name: 'team')
+      expect(all('th').collect(&:text)).to eq ['', 'Id', 'Created at', 'Updated at', 'Division', 'Name', 'Logo url', '...', '']
+      expect(page).not_to have_selector('.ra-sidescroll')
+    end
+
+    it "displays sets when global config is on but model config is off" do
+      RailsAdmin.config do |config|
+        config.sidescroll = true
+      end
+      RailsAdmin.config Team do
+        list do
+          sidescroll false
+        end
+      end
+      visit index_path(model_name: 'team')
+      expect(all('th').collect(&:text)).to eq ['', 'Id', 'Created at', 'Updated at', 'Division', 'Name', 'Logo url', '...', '']
+      expect(page).not_to have_selector('.ra-sidescroll')
+    end
+
+    it "displays all fields when global config is off but model config is on" do
+      RailsAdmin.config Team do
+        list do
+          sidescroll true
+        end
+      end
+      FactoryBot.create_list :team, 3
+      visit index_path(model_name: 'team')
+      cols = all('th').collect(&:text)
+      expect(cols[0..4]).to eq(all_team_columns[0..4])
+      expect(cols).to contain_exactly(*all_team_columns)
+      expect(page).to have_selector('.ra-sidescroll[data-ra-sidescroll=3]')
+    end
+
+    it "displays all fields with custom model config settings" do
+      RailsAdmin.config do |config|
+        config.sidescroll = true
+      end
+      RailsAdmin.config Team do
+        list do
+          sidescroll(num_frozen_columns: 2)
+        end
+      end
+      FactoryBot.create_list :team, 3
+      FactoryBot.create_list :player, 3
+      visit index_path(model_name: 'team')
+      cols = all('th').collect(&:text)
+      expect(cols[0..4]).to eq(all_team_columns[0..4])
+      expect(cols).to contain_exactly(*all_team_columns)
+      expect(page).to have_selector('.ra-sidescroll[data-ra-sidescroll=2]')
+      visit index_path(model_name: 'player')
+      expect(page).to have_selector('.ra-sidescroll[data-ra-sidescroll=3]')
+    end
+
+    it "displays all fields with model config checkbox settings" do
+      RailsAdmin.config do |config|
+        config.sidescroll = true
+      end
+      RailsAdmin.config Team do
+        list do
+          sidescroll(num_frozen_columns: 3)
+          checkboxes false
+        end
+      end
+      FactoryBot.create_list :team, 3
+      visit index_path(model_name: 'team')
+      cols = all('th').collect(&:text)
+      expect(cols[0..3]).to eq(all_team_columns[1..4])
+      expect(cols).to contain_exactly(*all_team_columns[1..-1])
+      expect(page).to have_selector('.ra-sidescroll[data-ra-sidescroll=3]')
     end
   end
 end

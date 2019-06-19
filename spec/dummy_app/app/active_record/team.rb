@@ -14,6 +14,8 @@ class Team < ActiveRecord::Base
   validates_numericality_of :revenue, allow_nil: true
   belongs_to :division
 
+  enum main_sponsor: [:no_sponsor, :food_factory, :transportation_company, :bank, :energy_producer]
+
   def player_names_truncated
     players.collect(&:name).join(', ')[0..32]
   end

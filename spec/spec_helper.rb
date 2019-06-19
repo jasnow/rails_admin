@@ -1,7 +1,7 @@
 # Configure Rails Envinronment
 ENV['RAILS_ENV'] = 'test'
 CI_ORM = (ENV['CI_ORM'] || :active_record).to_sym
-CI_TARGET_ORMS = [:active_record, :mongoid]
+CI_TARGET_ORMS = [:active_record, :mongoid].freeze
 PK_COLUMN = {active_record: :id, mongoid: :_id}[CI_ORM]
 
 require 'simplecov'
@@ -12,16 +12,18 @@ SimpleCov.formatters = [SimpleCov::Formatter::HTMLFormatter, Coveralls::SimpleCo
 SimpleCov.start do
   add_filter '/spec/'
   add_filter '/vendor/bundle/'
-  minimum_coverage(91.38)
+  minimum_coverage(CI_ORM == :mongoid ? 90.08 : 91.21)
 end
 
 require File.expand_path('../dummy_app/config/environment', __FILE__)
 
 require 'rspec/rails'
-require 'factory_girl'
+require 'factory_bot'
 require 'factories'
+require 'policies'
 require 'database_cleaner'
 require "orm/#{CI_ORM}"
+require 'support/fakeio'
 
 Dir[File.expand_path('../shared_examples/**/*.rb', __FILE__)].each { |f| require f }
 
@@ -52,6 +54,7 @@ end
 
 require 'capybara/poltergeist'
 Capybara.javascript_driver = :poltergeist
+Capybara.server = :webrick
 
 RSpec.configure do |config|
   config.expect_with :rspec do |c|

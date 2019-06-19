@@ -20,10 +20,22 @@ $(document).on 'rails_admin.dom_ready', (e, content) ->
           $(that).val(hex)
           $(that).css('backgroundColor', '#' + hex)
 
-    # datetime
+    # datetime picker
+    $.fn.datetimepicker.defaults.icons =
+      time:     'fa fa-clock-o'
+      date:     'fa fa-calendar'
+      up:       'fa fa-chevron-up'
+      down:     'fa fa-chevron-down'
+      previous: 'fa fa-angle-double-left'
+      next:     'fa fa-angle-double-right'
+      today:    'fa fa-dot-circle-o'
+      clear:    'fa fa-trash'
+      close:    'fa fa-times'
 
     content.find('[data-datetimepicker]').each ->
-      $(this).datetimepicker $(this).data('options')
+      options = $(this).data('options')
+      $.extend(options, {locale: RailsAdmin.I18n.locale})
+      $(this).datetimepicker options
 
     # enumeration
 
@@ -36,9 +48,12 @@ $(document).on 'rails_admin.dom_ready', (e, content) ->
     # fileupload
 
     content.find('[data-fileupload]').each ->
-      input = this
-      $(this).on 'click', ".delete input[type='checkbox']", ->
-        $(input).children('.toggle').toggle('slow')
+      parent = $(this).closest('.controls')
+      parent.find('.btn-remove-image').on 'click', ->
+        $(this).siblings('[type=checkbox]').click()
+        parent.find('.toggle').toggle('slow')
+        $(this).toggleClass('btn-danger btn-info')
+        false
 
     # fileupload-preview
 
@@ -57,6 +72,32 @@ $(document).on 'rails_admin.dom_ready', (e, content) ->
         image_container.show()
       else
         image_container.hide()
+
+    # multiple-fileupload
+
+    content.find('[data-multiple-fileupload]').each ->
+      $(this).closest('.controls').find('.btn-remove-image').on 'click', ->
+        $(this).siblings('[type=checkbox]').click()
+        $(this).parent('.toggle').toggle('slow')
+        $(this).toggleClass('btn-danger btn-info')
+        false
+
+    # multiple-fileupload-preview
+
+    content.find('[data-multiple-fileupload]').change ->
+      input = this
+      $("#" + input.id).parent().children(".preview").remove()
+      for file in input.files
+        ext = file.name.split('.').pop().toLowerCase()
+        if $.inArray(ext, ['gif','png','jpg','jpeg','bmp']) == -1
+          continue
+        image_container = $('<img />').addClass('preview').addClass('img-thumbnail')
+        do (image_container) ->
+          reader = new FileReader()
+          reader.onload = (e) ->
+            image_container.attr "src", e.target.result
+          reader.readAsDataURL file
+          $("#" + input.id).parent().append($('<div></div>').addClass('preview').append(image_container))
 
     # filtering-multiselect
 
@@ -139,22 +180,38 @@ $(document).on 'rails_admin.dom_ready', (e, content) ->
       field = type_select.parents('.control-group').first()
       object_select = field.find('select').last()
       urls = type_select.data('urls')
+
       type_select.on 'change', (e) ->
-        if $(this).val() is ''
-          object_select.html('<option value=""></option>')
-        else
-          $.ajax
-            url: urls[type_select.val()]
-            data:
-              compact: true
-              all: true
-            beforeSend: (xhr) ->
-              xhr.setRequestHeader("Accept", "application/json")
-            success: (data, status, xhr) ->
-              html = '<option></option>'
-              $(data).each (i, el) ->
-                html += '<option value="' + el.id + '">' + el.label + '</option>'
-              object_select.html(html)
+        selected_type = type_select.val().toLowerCase()
+        selected_data = $("##{selected_type}-js-options").data('options')
+        object_select.data('options', selected_data)
+        object_select.filteringSelect("destroy")
+        object_select.filteringSelect selected_data
+
+
+    # simplemde
+
+    goSimpleMDEs = ->
+      content.find('[data-richtext=simplemde]').not('.simplemded').each (index, domEle) ->
+        options = $(this).data('options')
+        instance_config = options.instance_config
+        new window.SimpleMDE($.extend(true, {
+          element: document.getElementById(this.id),
+          autosave: {
+            uniqueId: this.id
+          }
+        }, instance_config))
+        $(this).addClass('simplemded')
+
+    $editors = content.find('[data-richtext=simplemde]').not('.simplemded')
+    if $editors.length
+      if not window.SimpleMDE
+        options = $editors.first().data('options')
+        $('head').append('<link href="' + options['css_location'] + '" rel="stylesheet" media="all" type="text\/css">')
+        $.getScript options['js_location'], (script, textStatus, jqXHR) ->
+          goSimpleMDEs()
+      else
+        goSimpleMDEs()
 
     # ckeditor
 
@@ -183,6 +240,7 @@ $(document).on 'rails_admin.dom_ready', (e, content) ->
         options = $(this).data('options')
         textarea = this
         $.getScript options['locations']['mode'], (script, textStatus, jqXHR) ->
+          options = $(domEle).data('options')
           $('head').append('<link href="' + options['locations']['theme'] + '" rel="stylesheet" media="all" type="text\/css">')
           CodeMirror.fromTextArea(textarea,options['options'])
           $(textarea).addClass('codemirrored')
@@ -236,9 +294,9 @@ $(document).on 'rails_admin.dom_ready', (e, content) ->
             authenticity_token: $('meta[name=csrf-token]').attr('content')
 
         $(@).addClass('froala-wysiwyged')
-        $(@).editable(config_options)
+        $(@).froalaEditor(config_options)
         if uploadEnabled
-          $(@).on 'editable.imageError', (e, editor, error) ->
+          $(@).on 'froalaEditor.image.error', (e, editor, error) ->
             alert("error uploading image: " + error.message);
             # Custom error message returned from the server.
             if error.code == 0
@@ -268,7 +326,7 @@ $(document).on 'rails_admin.dom_ready', (e, content) ->
 
             return
 
-          .on('editable.afterRemoveImage', (e, editor, $img) ->
+          .on('froalaEditor.image.removed', (e, editor, $img) ->
             # Set the image source to the image delete params.
             editor.options.imageDeleteParams =
               src: $img.attr('src')
@@ -291,3 +349,11 @@ $(document).on 'rails_admin.dom_ready', (e, content) ->
           goFroalaWysiwygs(array)
       else
         goFroalaWysiwygs(array)
+
+    # action_text
+
+    content.find('trix-editor').each ->
+      if !window.Trix
+        options = $(this).data('options')
+        $('head').append('<link href="' + options['csspath'] + '" rel="stylesheet" media="all" type="text\/css">')
+        $.getScript options['jspath']
